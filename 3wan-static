@@ -1,0 +1,104 @@
+/system reset-configuration skip-backup=yes no-defaults=yes
+/user add group=full name=name password=password 
+/user remove admin
+
+/interface list add name=WAN comment="For Internet"
+/interface list add name=LAN comment="For Local Area"
+
+/interface ethernet set ether1 comment="to ISP1"
+/interface ethernet set ether2 comment="to ISP2"
+/interface ethernet set ether3 comment="to ISP3"
+/interface ethernet set ether4 comment="to LAN1"
+/interface ethernet set ether5 comment="to LAN2"
+
+/interface list member add interface=ether1 list=WAN comment=ISP1
+/interface list member add interface=ether2 list=WAN comment=ISP2 
+/interface list member add interface=ether3 list=WAN comment=ISP3
+/interface list member add interface=ether4 list=LAN comment=LAN1
+/interface list member add interface=ether5 list=LAN comment=LAN2
+
+/ip neighbor discovery-settings set discover-interface-list=!WAN
+/tool mac-server set allowed-interface-list=LAN
+/tool mac-server mac-winbox set allowed-interface-list=LAN
+
+/ip firewall filter add action=accept chain=input comment="Related Established Untracked Allow" connection-state=established,related,untracked
+/ip firewall filter add action=accept chain=input comment="ICMP from ALL" protocol=icmp
+/ip firewall filter add action=drop chain=input comment="All other WAN Drop" in-interface-list=WAN
+/ip firewall filter add action=accept chain=forward comment="Established, Related, Untracked allow" connection-state=established,related,untracked
+/ip firewall filter add action=drop chain=forward comment="Invalid drop" connection-state=invalid
+/ip firewall filter add action=drop chain=forward comment="Drop all from WAN not DSTNATed" connection-nat-state=!dstnat connection-state=new in-interface-list=WAN
+
+/ip firewall address-list
+add address=0.0.0.0/8 comment="\"This\" Network" list=BOGONS
+add address=10.0.0.0/8 comment="Private-Use Networks" list=BOGONS
+add address=100.64.0.0/10 comment="Shared Address Space. RFC 6598" list=BOGONS
+add address=127.0.0.0/8 comment=Loopback list=BOGONS
+add address=169.254.0.0/16 comment="Link Local" list=BOGONS
+add address=172.16.0.0/12 comment="Private-Use Networks" list=BOGONS
+add address=192.0.0.0/24 comment="IETF Protocol Assignments" list=BOGONS
+add address=192.0.2.0/24 comment=TEST-NET-1 list=BOGONS
+add address=192.168.0.0/16 comment="Private-Use Networks" list=BOGONS
+add address=198.18.0.0/15 comment="Network Interconnect Device Benchmark Testing" list=BOGONS
+add address=198.51.100.0/24 comment=TEST-NET-2 list=BOGONS
+add address=203.0.113.0/24 comment=TEST-NET-3 list=BOGONS
+add address=224.0.0.0/4 comment=Multicast list=BOGONS
+add address=192.88.99.0/24 comment="6to4 Relay Anycast" list=BOGONS
+add address=240.0.0.0/4 comment="Reserved for Future Use" list=BOGONS
+add address=255.255.255.255 comment="Limited Broadcast" list=BOGONS
+
+/ip dns set servers=8.8.8.8
+
+
+/ip address add interface=ether4 address=10.0.0.2/24 comment="LAN1 IP"
+/ip address add interface=ether5 address=10.0.10.1/24 comment="LAN2 IP"
+
+/ip route rule add dst-address=10.0.0.0/24 table=main comment="to LAN1"
+/ip route rule add dst-address=10.0.10.0/24 table=main comment="to LAN2"
+
+/ip firewall nat add action=src-nat chain=srcnat comment="Hairpin to LAN1" out-interface=ether4 src-address=10.0.0.0/24 to-addresses=10.0.0.2
+/ip firewall nat add action=src-nat chain=srcnat comment="Hairpin to LAN2" out-interface=ether5 src-address=10.0.10.0/24 to-addresses=10.0.10.1
+
+/ip firewall mangle add action=mark-connection chain=prerouting comment="Connmark in from ISP1" connection-mark=no-mark in-interface=ether1 new-connection-mark=conn_isp1 passthrough=no
+/ip firewall mangle add action=mark-connection chain=prerouting comment="Connmark in from ISP2" connection-mark=no-mark in-interface=ether2 new-connection-mark=conn_isp2 passthrough=no
+/ip firewall mangle add action=mark-connection chain=prerouting comment="Connmark in from ISP3" connection-mark=no-mark in-interface=ether3 new-connection-mark=conn_isp3 passthrough=no
+/ip firewall mangle add action=mark-routing chain=prerouting comment="Routemark transit out via ISP1" connection-mark=conn_isp1 dst-address-type=!local in-interface-list=!WAN new-routing-mark=to_isp1 passthrough=no
+/ip firewall mangle add action=mark-routing chain=prerouting comment="Routemark transit out via ISP2" connection-mark=conn_isp2 dst-address-type=!local in-interface-list=!WAN new-routing-mark=to_isp2 passthrough=no
+/ip firewall mangle add action=mark-routing chain=prerouting comment="Routemark transit out via ISP3" connection-mark=conn_isp3 dst-address-type=!local in-interface-list=!WAN new-routing-mark=to_isp3 passthrough=no
+/ip firewall mangle add action=mark-routing chain=output comment="Routemark local out via ISP1" connection-mark=conn_isp1 dst-address-type=!local new-routing-mark=to_isp1 passthrough=no
+/ip firewall mangle add action=mark-routing chain=output comment="Routemark local out via ISP2" connection-mark=conn_isp2 dst-address-type=!local new-routing-mark=to_isp2 passthrough=no
+/ip firewall mangle add action=mark-routing chain=output comment="Routemark local out via ISP3" connection-mark=conn_isp3 dst-address-type=!local new-routing-mark=to_isp3 passthrough=no
+/ip firewall mangle add action=mark-routing chain=prerouting comment="Address List via ISP1" dst-address-list=!BOGONS new-routing-mark=to_isp1 passthrough=no src-address-list=Via_ISP1
+/ip firewall mangle add action=mark-routing chain=prerouting comment="Address List via ISP3" dst-address-list=!BOGONS new-routing-mark=to_isp3 passthrough=no src-address-list=Via_ISP3
+
+/ip address add interface=ether1 address=ip1 comment="ISP1 IP"
+/interface bridge add name=br-lo comment="Loopback interface"
+/ip route add distance=254 gateway=br-lo comment="Emergency route"
+/ip route add check-gateway=ping comment="For recursion via ISP1" distance=1 dst-address=4.2.2.1 gateway=gateway1 scope=10
+/ip route add check-gateway=ping comment="Unmarked via ISP1" distance=2 gateway=4.2.2.1
+/ip route add comment="Marked via ISP1 Main" distance=1 gateway=4.2.2.1 routing-mark=to_isp1
+/ip route add comment="Marked via ISP2 Backup1" distance=2 gateway=4.2.2.1 routing-mark=to_isp2
+/ip route add comment="Marked via ISP3 Backup1" distance=2 gateway=4.2.2.1 routing-mark=to_isp3
+/ip route rule add comment="From ISP1 IP to Inet" src-address=ip1 table=to_isp1
+/ip firewall nat add action=src-nat chain=srcnat comment="NAT via ISP1" ipsec-policy=out,none out-interface=ether1 to-addresses=ip1
+/ip firewall mangle add action=route chain=prerouting comment="Address List via ISP1 only" dst-address-list=!BOGONS passthrough=no route-dst=gateway1 src-address-list=Via_only_ISP1 place-before=0
+
+/ip address add interface=ether2 address=ip2 comment="ISP2 IP"
+/ip route add check-gateway=ping comment="For recursion via ISP2" distance=1 dst-address=4.2.2.2 gateway=gateway2 scope=10
+/ip route add check-gateway=ping comment="Unmarked via ISP3" distance=1 gateway=4.2.2.2
+/ip route add comment="Marked via ISP2 Main" distance=1 gateway=4.2.2.2 routing-mark=to_isp2
+/ip route add comment="Marked via ISP1 Backup1" distance=2 gateway=4.2.2.2 routing-mark=to_isp1
+/ip route add comment="Marked via ISP3 Backup2" distance=2 gateway=4.2.2.2 routing-mark=to_isp3
+/ip route rule add comment="From ISP2 IP to Inet" src-address=ip2 table=to_isp2
+/ip firewall nat add action=src-nat chain=srcnat comment="NAT via ISP3" ipsec-policy=out,none out-interface=ether2 to-addresses=ip2
+
+
+/ip address add interface=ether3 address=ip3 comment="ISP3 IP"
+/ip route add check-gateway=ping comment="For recursion via ISP3" distance=1 dst-address=4.2.2.3 gateway=gateway3 scope=10
+/ip route add check-gateway=ping comment="Unmarked via ISP3" distance=1 gateway=4.2.2.3
+/ip route add comment="Marked via ISP3 Main" distance=1 gateway=4.2.2.3 routing-mark=to_isp3
+/ip route add comment="Marked via ISP1 Backup2" distance=2 gateway=4.2.2.3 routing-mark=to_isp1
+/ip route add comment="Marked via ISP2 Backup2" distance=2 gateway=4.2.2.3 routing-mark=to_isp2
+/ip route rule add comment="From ISP3 IP to Inet" src-address=ip3 table=to_isp3
+/ip firewall nat add action=src-nat chain=srcnat comment="NAT via ISP3" ipsec-policy=out,none out-interface=ether3 to-addresses=ip3
+
+/system ntp client set enabled=yes server-dns-names=0.pool.ntp.org,1.pool.ntp.org,2.pool.ntp.org
